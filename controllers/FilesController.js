@@ -1,9 +1,10 @@
 import { ObjectId } from "mongodb";
 import Queue from "bull";
 import { v4 } from "uuid";
-import { promises as fs } from "fs";
+import { promises as fs, stat, existsSync, realpath } from "fs";
 import { getUserByToken } from "../utils/auth";
 import dbClient from "../utils/db";
+import { promisify } from "util";
 
 const fileQueue = new Queue("fileQueue");
 export default class FilesController {
@@ -263,7 +264,7 @@ export default class FilesController {
     const size = req.query.size || null;
     const userId = user ? user._id.toString() : "";
     const fileFilter = {
-      _id: new mongoDBCore.BSON.ObjectId(id),
+      _id: new ObjectId(id),
     };
     const file = await filesCollection.findOne(fileFilter);
 
@@ -280,7 +281,7 @@ export default class FilesController {
       filePath = `${file.localPath}_${size}`;
     }
     if (existsSync(filePath)) {
-      const fileInfo = await statAsync(filePath);
+      const fileInfo = await promisify(stat(filePath));
       if (!fileInfo.isFile()) {
         res.status(404).json({ error: "Not found" });
         return;
@@ -289,7 +290,7 @@ export default class FilesController {
       res.status(404).json({ error: "Not found" });
       return;
     }
-    const absoluteFilePath = await realpathAsync(filePath);
+    const absoluteFilePath =  realpath(filePath);
     res.setHeader(
       "Content-Type",
       contentType(file.name) || "text/plain; charset=utf-8"
