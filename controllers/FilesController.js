@@ -9,10 +9,15 @@ import { promises as fs } from "fs";
 const FOLDER_PATH = process.env.FOLDER_PATH || "/tmp/files_manager";
 
 const fileQueue = new Queue("fileQueue");
-
+const ROOT_FOLDER_ID = 0;
 export default class FilesController {
+  /**
+   *
+   * @param {*} req
+   * @param {*} res
+   * @returns
+   */
   static async postUpload(req, res) {
-    console.log(req.body);
     const { name, type, parentId, isPublic, data } = req.body;
     const user = await getUserByToken(req);
     if (!user) {
@@ -33,10 +38,10 @@ export default class FilesController {
       const idObject = new ObjectId(parentId);
       const file = await files.findOne({ _id: idObject, userId: user._id });
       if (!file) {
-        return response.status(400).json({ error: "Parent not found" });
+        return res.status(400).json({ error: "Parent not found" });
       }
       if (file.type !== "folder") {
-        return response.status(400).json({ error: "Parent is not a folder" });
+        return res.status(400).json({ error: "Parent is not a folder" });
       }
     }
 
@@ -56,7 +61,7 @@ export default class FilesController {
           name,
           type,
           isPublic: isPublic ?? false,
-          parentId: parentId ?? 0, 
+          parentId: parentId ?? 0,
         });
       } else {
         const filePath =
@@ -97,5 +102,75 @@ export default class FilesController {
       console.log(e);
       return e;
     }
+  }
+
+  /**
+   *
+   * @param {*} req
+   * @param {*} res
+   * @returns
+   */
+  static async getShow(req, res) {
+    const user = await getUserByToken(req);
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const files = dbClient.db.collection("files");
+    const file = await files.findOne({
+      _id: new ObjectId(req.params.id),
+      userId: user._id,
+    });
+    if (!file) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    return res.status(200).json(file);
+  }
+
+  /**
+   * 
+   * @param {*} req 
+   * @param {*} res 
+   * @returns 
+   */
+  static async getIndex(req, res) {
+    const user = await getUserByToken(req);
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const parentId = req.query.parentId ?? 0;
+    const page = req.query.page ? Number.parseInt(req.query.page, 10) : 0;
+    console.log(page);
+    const query = {
+      userId: user._id,
+      parentId:
+        parentId === 0 ? parentId : new ObjectId(parentId ? parentId : NULL_ID),
+    };
+    const pipeline = [
+      { $match: query },
+      { $sort: { _id: -1 } },
+      { $skip: page * 20 },
+      { $limit: 20 },
+      {
+        $project: {
+          _id: 0,
+          id: "$_id",
+          userId: "$userId",
+          name: "$name",
+          type: "$type",
+          isPublic: "$isPublic",
+          parentId: {
+            $cond: {
+              if: { $eq: ["$parentId", "0"] },
+              then: 0,
+              else: "$parentId",
+            },
+          },
+        },
+      },
+    ];
+    console.log(query);
+    const filesCollection = dbClient.db.collection("files");
+    const data = await filesCollection.aggregate(pipeline).toArray();
+    res.status(200).json(data);
   }
 }
